@@ -1,8 +1,8 @@
-CREATE DATABASE  IF NOT EXISTS `cake_php_blog` /*!40100 DEFAULT CHARACTER SET utf8 */;
-USE `cake_php_blog`;
+CREATE DATABASE  IF NOT EXISTS `cakephp3` /*!40100 DEFAULT CHARACTER SET utf8 */;
+USE `cakephp3`;
 -- MySQL dump 10.13  Distrib 5.6.17, for Win32 (x86)
 --
--- Host: localhost    Database: cake_php_blog
+-- Host: localhost    Database: cakephp3
 -- ------------------------------------------------------
 -- Server version	5.6.19
 
