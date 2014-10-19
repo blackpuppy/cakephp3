@@ -198,7 +198,7 @@ mysql:
             host: localhost
             user: cakephp3
             password: 'I*$o$&(y'
-            sql_file: ''
+            sql_file: /var/www/database/backup/2014-10-19_cakephp_blog.sql
 postgresql:
     install: '0'
     settings:
