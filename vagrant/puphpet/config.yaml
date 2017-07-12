@@ -87,8 +87,8 @@ vagrantfile:
 server:
     install: '1'
     packages:
-        - htop
         - vim
+        - htop
 users_groups:
     install: '1'
     groups: {  }
@@ -100,7 +100,7 @@ locale:
         locales:
             - en_GB.UTF-8
             - en_US.UTF-8
-        timezone: UTC
+        timezone: Asia/Singapore
 firewall:
     install: '1'
     rules: {  }
@@ -135,6 +135,82 @@ nginx:
             listen_port: '80'
             client_max_body_size: 1m
             ssl: '0'
+            locations:
+                nxvl_rux2eye5dazn:
+                    www_root: /var/www/awesome/web
+                    location: /
+                    autoindex: 'off'
+                    internal: 'false'
+                    index_files:
+                        - index.html
+                        - index.php
+                        - app.php
+                    try_files:
+                        - $uri
+                        - $uri/
+                        - /index.php$is_args$args
+                        - /app.php$is_args$args
+                    fastcgi: ''
+                    fastcgi_index: ''
+                    fastcgi_split_path: ''
+                    proxy: ''
+                    proxy_redirect: ''
+                nxvl_kcywzygtjp5g:
+                    www_root: /var/www/awesome/web
+                    location: '~ ^/(app_dev|config)\.php(/|$)'
+                    autoindex: 'off'
+                    internal: 'false'
+                    try_files:
+                        - $uri
+                        - $uri/
+                        - /app_dev.php$is_args$args
+                    fastcgi: '127.0.0.1:9000'
+                    fastcgi_index: app_dev.php
+                    fastcgi_split_path: '^(.+\.php)(/.*)$'
+                    fast_cgi_params_extra:
+                        - 'SCRIPT_FILENAME $document_root$fastcgi_script_name'
+                        - 'APP_ENV dev'
+                    set:
+                        - '$path_info $fastcgi_path_info'
+                    proxy: ''
+                    proxy_redirect: ''
+                nxvl_6fdwj5q2bbel:
+                    www_root: /var/www/awesome/web
+                    location: '~ ^/index\.php(/|$)'
+                    autoindex: 'off'
+                    internal: 'false'
+                    try_files:
+                        - $uri
+                        - $uri/
+                        - /index.php$is_args$args
+                    fastcgi: '127.0.0.1:9000'
+                    fastcgi_index: index.php
+                    fastcgi_split_path: '^(.+\.php)(/.*)$'
+                    fast_cgi_params_extra:
+                        - 'SCRIPT_FILENAME $document_root$fastcgi_script_name'
+                    set:
+                        - '$path_info $fastcgi_path_info'
+                    proxy: ''
+                    proxy_redirect: ''
+                nxvl_238gnnnq91va:
+                    www_root: /var/www/awesome/web
+                    location: '~ ^/app\.php(/|$)'
+                    autoindex: 'off'
+                    internal: 'false'
+                    try_files:
+                        - $uri
+                        - $uri/
+                        - /app.php$is_args$args
+                    fastcgi: '127.0.0.1:9000'
+                    fastcgi_index: app.php
+                    fastcgi_split_path: '^(.+\.php)(/.*)$'
+                    fast_cgi_params_extra:
+                        - 'SCRIPT_FILENAME $document_root$fastcgi_script_name'
+                        - 'APP_ENV prod'
+                    set:
+                        - '$path_info $fastcgi_path_info'
+                    proxy: ''
+                    proxy_redirect: ''
     proxies: {  }
 apache:
     install: '1'
@@ -147,6 +223,7 @@ apache:
         manage_group: false
         sendfile: 0
     modules:
+        - proxy_fcgi
         - rewrite
     vhosts:
         av_cja2jmmkcgbl:
@@ -155,6 +232,8 @@ apache:
                 - www.cakephp3.local
             docroot: /var/www/src/cakephp3/webroot
             port: '80'
+            setenvif:
+                - 'Authorization "(.*)" HTTP_AUTHORIZATION=$1'
             custom_fragment: ''
             ssl: '0'
             ssl_cert: LETSENCRYPT
@@ -163,6 +242,40 @@ apache:
             ssl_certs_dir: LETSENCRYPT
             ssl_protocol: ''
             ssl_cipher: ''
+            directories:
+                avd_wfaauh3v44nv:
+                    path: /var/www/awesome/web
+                    directoryindex: index.php
+                    options:
+                        - Indexes
+                        - FollowSymlinks
+                        - MultiViews
+                    allow_override:
+                        - All
+                    require:
+                        - 'all granted'
+                    custom_fragment: ''
+                    provider: directory
+            files_match:
+                avfm_hnr9nd104tn6:
+                    path: (app_dev|config)\.php$
+                    sethandler: 'proxy:fcgi://127.0.0.1:9000'
+                    setenv:
+                        - 'APP_ENV dev'
+                    custom_fragment: ''
+                    provider: filesmatch
+                avfm_uwkfcfh5nwun:
+                    path: app\.php$
+                    sethandler: 'proxy:fcgi://127.0.0.1:9000'
+                    setenv:
+                        - 'APP_ENV prod'
+                    custom_fragment: ''
+                    provider: filesmatch
+                avfm_1arl828o7sm5:
+                    path: \.php$
+                    sethandler: 'proxy:fcgi://127.0.0.1:9000'
+                    custom_fragment: ''
+                    provider: filesmatch
 letsencrypt:
     install: '1'
     settings:
@@ -177,11 +290,12 @@ php:
         php:
             - cli
             - intl
-            - mcrypt
+            - xml
             - curl
             - fpm
             - gd
             - mbstring
+            - mcrypt
         pear: {  }
         pecl:
             - pecl_http
@@ -189,9 +303,17 @@ php:
         display_errors: 'On'
         error_reporting: '-1'
         session.save_path: /var/lib/php/session
+        date.timezone: Asia/Singapore
     fpm_ini:
         error_log: /var/log/php-fpm.log
-    fpm_pools: {  }
+    fpm_pools:
+        phpfp_in19pgf20uqm:
+            ini:
+                prefix: www
+                listen: '127.0.0.1:9000'
+                security.limit_extensions: .php
+                user: www-user
+                group: www-data
     composer: '1'
     composer_home: ''
 xdebug:
@@ -224,22 +346,26 @@ wpcli:
     version: v1.1.0
 drush:
     install: '0'
-    version: 6.3.0
+    version: 8.0.5
 ruby:
     install: '1'
     versions:
-        rv_kjm8qy42gpvo:
-            version: ''
+        rv_l9vh53rucu0w:
+            default: '1'
+            bundler: '1'
+            version: 2.3.1
+            gems:
+                - deep_merge@1.0.1
+                - activesupport@4.2.6
+                - vine@0.2
 python:
     install: '1'
     packages: {  }
-    versions:
-        pyenv_8ql2qe33982c:
-            version: 3.4.0
+    versions: {  }
 nodejs:
     install: '0'
     settings:
-        version: '7'
+        version: '6'
     npm_packages: {  }
 mariadb:
     install: '0'
@@ -247,9 +373,20 @@ mariadb:
         version: '10.1'
         root_password: '123'
         override_options: {  }
-    users: {  }
-    databases: {  }
-    grants: {  }
+    users:
+        mariadbnu_px4e3jfh3peb:
+            name: dbuser
+            password: '123'
+    databases:
+        mariadbnd_49xnsoh4coca:
+            name: dbname
+            sql: ''
+    grants:
+        mariadbng_nyv43y0rj9sj:
+            user: dbuser
+            table: '*.*'
+            privileges:
+                - ALL
 mysql:
     install: '1'
     settings:
@@ -275,9 +412,9 @@ postgresql:
     settings:
         global:
             encoding: UTF8
-            version: '9.4'
+            version: '9.6'
         server:
-            postgres_password: ''
+            postgres_password: '123'
     databases: {  }
     users: {  }
     grants: {  }
@@ -308,7 +445,7 @@ beanstalkd:
     install: '0'
     settings:
         listenaddress: 0.0.0.0
-        listenport: '13000'
+        listenport: '11300'
         maxjobsize: '65535'
         maxconnections: '1024'
         binlogdir: /var/lib/beanstalkd/binlog
@@ -327,7 +464,9 @@ elastic_search:
     settings:
         version: 2.3.1
         java_install: true
-    instances: {  }
+    instances:
+        esi_l54z62mv2e3y:
+            name: es-01
 solr:
     install: '0'
     settings:
