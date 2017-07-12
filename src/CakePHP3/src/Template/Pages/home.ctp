@@ -41,6 +41,9 @@ $cakeDescription = 'CakePHP: the rapid development PHP framework';
     <?= $this->Html->css('cake.css') ?>
     <?= $this->Html->css('home.css') ?>
     <link href="https://fonts.googleapis.com/css?family=Raleway:500i|Roboto:300,400,700|Roboto+Mono" rel="stylesheet">
+    <?= $this->Html->css('Wpadmin.zui') ?>
+    <?= $this->Html->css('Wpadmin/lib/zui/css/zui.min.css') ?>
+    <?= $this->Html->css('/wpadmin/lib/zui/css/zui.min.css') ?>
 </head>
 <body class="home">
 
