@@ -54,4 +54,4 @@ alias grep='grep --color=auto -in'
 alias ..='cd ..'
 
 
-cd /var/www/src/CakePHP3/
+cd /var/www/cakephp3/src/cakephp3/
