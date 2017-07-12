@@ -1,7 +1,7 @@
-CakePHP3
-========
+CakePHP 3
+=========
 
-CakePHP3 to mess up.
+CakePHP 3 to mess up.
 
 The source code is under /src/CakePHP3 folder.  Use it as your web site root.
 
