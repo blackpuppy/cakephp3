@@ -1,82 +1,55 @@
-class puphpet::params {
+class puphpet::params (
+  $extra_config_files = []
+) {
 
-  $xdebug_package = $::osfamily ? {
-    'Debian' => 'php5-xdebug',
-    'Redhat' => 'php-pecl-xdebug'
-  }
+  $puphpet_core_dir  = pick(getvar('::puphpet_core_dir'), '/opt/puphpet')
+  $puphpet_state_dir = pick(getvar('::puphpet_state_dir'), '/opt/puphpet-state')
+  $ssh_username      = pick(getvar('::ssh_username'), 'root')
+  $provisioner_type  = pick(getvar('::provisioner_type'), 'remote')
 
-  $xhprof_package = $::osfamily ? {
-    'Debian' => $::operatingsystem ? {
-      'ubuntu' => false,
-      'debian' => 'php5-xhprof'
-    },
-    'Redhat' => 'xhprof'
-  }
+  $puphpet_manifest_dir = "${puphpet_core_dir}/puppet/modules/puphpet"
 
-  $apache_webroot_location = $::osfamily ? {
-    'Debian' => '/var/www',
-    'Redhat' => '/var/www/html'
-  }
+  $base_configs = [
+    "${puphpet_core_dir}/config.yaml",
+    "${puphpet_core_dir}/config-${provisioner_type}.yaml",
+  ]
 
-  $apache_mod_pagespeed_url = $::osfamily ? {
-    'Debian' => $::architecture ? {
-        'i386'   => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_i386.deb',
-        'amd64'  => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_amd64.deb',
-        'x86_64' => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_amd64.deb'
-      },
-    'Redhat' => $::architecture ? {
-        'i386'   => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_i386.rpm',
-        'amd64'  => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_x86_64.rpm',
-        'x86_64' => 'https://dl-ssl.google.com/dl/linux/direct/mod-pagespeed-stable_current_x86_64.rpm'
-      },
-  }
+  $custom_config = ["${puphpet_core_dir}/config-custom.yaml"]
 
-  $apache_mod_pagespeed_package = 'mod-pagespeed-stable'
+  $yaml = merge_yaml($base_configs, $extra_config_files, $custom_config)
 
-  $nginx_default_conf_location = $::osfamily ? {
-    'Debian' => '/etc/nginx/conf.d/default.conf',
-    'Redhat' => '/etc/nginx/conf.d/default.conf'
-  }
-
-  $nginx_webroot_location = $::osfamily ? {
-    'Debian' => '/var/www/html',
-    'Redhat' => '/var/www/html'
-  }
-
-  $mariadb_package_client_name = $::osfamily ? {
-    'Debian' => 'mariadb-client',
-    'Redhat' => 'MariaDB-client',
-  }
-
-  $mariadb_package_server_name = $::osfamily ? {
-    'Debian' => 'mariadb-server',
-    'Redhat' => 'MariaDB-server',
-  }
-
-  $hhvm_package_name = 'hhvm'
-  $hhvm_package_name_nightly = $::osfamily ? {
-    'Debian' => 'hhvm-nightly',
-    'Redhat' => 'hhvm'
-  }
-
-  $ssl_cert_location = $::osfamily ? {
-    'Debian' => '/etc/ssl/certs/ssl-cert-snakeoil.pem',
-    'Redhat' => '/etc/ssl/certs/ssl-cert-snakeoil'
-  }
-
-  $ssl_key_location = $::osfamily ? {
-    'Debian' => '/etc/ssl/private/ssl-cert-snakeoil.key',
-    'Redhat' => '/etc/ssl/certs/ssl-cert-snakeoil'
-  }
-
-  $php_fpm_conf = $::osfamily ? {
-    'Debian' => '/etc/php5/fpm/pool.d/www.conf',
-    'Redhat' => '/etc/php-fpm.d/www.conf',
-  }
-
-  $php_cgi_package = $::osfamily ? {
-    'Debian' => 'php5-cgi',
-    'Redhat' => 'php-cgi'
+  $hiera = {
+    vm             => hiera_hash('vagrantfile', {}),
+    apache         => $yaml['apache'],
+    beanstalkd     => hiera_hash('beanstalkd', {}),
+    blackfire      => hiera_hash('blackfire', {}),
+    cron           => hiera_hash('cron', {}),
+    drush          => hiera_hash('drush', {}),
+    elasticsearch  => hiera_hash('elastic_search', {}),
+    firewall       => hiera_hash('firewall', {}),
+    hhvm           => hiera_hash('hhvm', {}),
+    letsencrypt    => hiera_hash('letsencrypt', {}),
+    locales        => hiera_hash('locale', {}),
+    mailhog        => hiera_hash('mailhog', {}),
+    mariadb        => hiera_hash('mariadb', {}),
+    mongodb        => hiera_hash('mongodb', {}),
+    mysql          => hiera_hash('mysql', {}),
+    nginx          => $yaml['nginx'],
+    nodejs         => hiera_hash('nodejs', {}),
+    php            => hiera_hash('php', {}),
+    postgresql     => hiera_hash('postgresql', {}),
+    python         => hiera_hash('python', {}),
+    rabbitmq       => hiera_hash('rabbitmq', {}),
+    redis          => hiera_hash('redis', {}),
+    resolv         => hiera_hash('resolv', {}),
+    ruby           => hiera_hash('ruby', {}),
+    server         => hiera_hash('server', {}),
+    solr           => hiera_hash('solr', {}),
+    sqlite         => hiera_hash('sqlite', {}),
+    users_groups   => hiera_hash('users_groups', {}),
+    wpcli          => hiera_hash('wpcli', {}),
+    xdebug         => hiera_hash('xdebug', {}),
+    xhprof         => hiera_hash('xhprof', {}),
   }
 
 }

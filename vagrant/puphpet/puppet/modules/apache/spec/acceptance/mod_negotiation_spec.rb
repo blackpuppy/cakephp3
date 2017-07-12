@@ -1,25 +1,11 @@
 require 'spec_helper_acceptance'
+require_relative './version.rb'
 
-describe 'apache::mod::negotiation class', :unless => UNSUPPORTED_PLATFORMS.include?(fact('osfamily')) do
-  case fact('osfamily')
-  when 'Debian'
-    vhost_dir    = '/etc/apache2/sites-enabled'
-    mod_dir      = '/etc/apache2/mods-available'
-    service_name = 'apache2'
-  when 'RedHat'
-    vhost_dir    = '/etc/httpd/conf.d'
-    mod_dir      = '/etc/httpd/conf.d'
-    service_name = 'httpd'
-  when 'FreeBSD'
-    vhost_dir    = '/usr/local/etc/apache22/Vhosts'
-    mod_dir      = '/usr/local/etc/apache22/Modules'
-    service_name = 'apache22'
-  end
-
+describe 'apache::mod::negotiation class' do
   context "default negotiation config" do
     it 'succeeds in puppeting negotiation' do
       pp= <<-EOS
-        class { '::apache': }
+        class { '::apache': default_mods => false }
         class { '::apache::mod::negotiation': }
       EOS
       apply_manifest(pp, :catch_failures => true)
@@ -30,8 +16,12 @@ describe 'apache::mod::negotiation class', :unless => UNSUPPORTED_PLATFORMS.incl
 ForceLanguagePriority Prefer Fallback" }
     end
 
-    describe service(service_name) do
-      it { should be_enabled }
+    describe service($service_name) do
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { should be_running }
     end
   end
@@ -39,7 +29,7 @@ ForceLanguagePriority Prefer Fallback" }
   context "with alternative force_language_priority" do
     it 'succeeds in puppeting negotiation' do
       pp= <<-EOS
-        class { '::apache': }
+        class { '::apache': default_mods => false }
         class { '::apache::mod::negotiation':
           force_language_priority => 'Prefer',
         }
@@ -51,8 +41,12 @@ ForceLanguagePriority Prefer Fallback" }
       it { should contain "ForceLanguagePriority Prefer" }
     end
 
-    describe service(service_name) do
-      it { should be_enabled }
+    describe service($service_name) do
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { should be_running }
     end
   end
@@ -60,7 +54,7 @@ ForceLanguagePriority Prefer Fallback" }
   context "with alternative language_priority" do
     it 'succeeds in puppeting negotiation' do
       pp= <<-EOS
-        class { '::apache': }
+        class { '::apache': default_mods => false }
         class { '::apache::mod::negotiation':
           language_priority => [ 'en', 'es' ],
         }
@@ -72,8 +66,12 @@ ForceLanguagePriority Prefer Fallback" }
       it { should contain "LanguagePriority en es" }
     end
 
-    describe service(service_name) do
-      it { should be_enabled }
+    describe service($service_name) do
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { should be_running }
     end
   end

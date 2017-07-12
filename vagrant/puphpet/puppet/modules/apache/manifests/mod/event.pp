@@ -1,13 +1,21 @@
 class apache::mod::event (
-  $startservers        = '2',
-  $maxclients          = '150',
-  $minsparethreads     = '25',
-  $maxsparethreads     = '75',
-  $threadsperchild     = '25',
-  $maxrequestsperchild = '0',
-  $serverlimit         = '25',
-  $apache_version      = $::apache::apache_version,
+  $startservers           = '2',
+  $maxclients             = '150',
+  $maxrequestworkers      = undef,
+  $minsparethreads        = '25',
+  $maxsparethreads        = '75',
+  $threadsperchild        = '25',
+  $maxrequestsperchild    = '0',
+  $maxconnectionsperchild = undef,
+  $serverlimit            = '25',
+  $apache_version         = undef,
+  $threadlimit            = '64',
+  $listenbacklog          = '511',
 ) {
+  include ::apache
+
+  $_apache_version = pick($apache_version, $apache::apache_version)
+
   if defined(Class['apache::mod::itk']) {
     fail('May not include both apache::mod::event and apache::mod::itk on the same node')
   }
@@ -23,7 +31,7 @@ class apache::mod::event (
   File {
     owner => 'root',
     group => $::apache::params::root_group,
-    mode  => '0644',
+    mode  => $::apache::file_mode,
   }
 
   # Template uses:
@@ -36,23 +44,29 @@ class apache::mod::event (
   # - $serverlimit
   file { "${::apache::mod_dir}/event.conf":
     ensure  => file,
+    mode    => $::apache::file_mode,
     content => template('apache/mod/event.conf.erb'),
     require => Exec["mkdir ${::apache::mod_dir}"],
     before  => File[$::apache::mod_dir],
-    notify  => Service['httpd'],
+    notify  => Class['apache::service'],
   }
 
   case $::osfamily {
     'redhat': {
-      if versioncmp($apache_version, '2.4') >= 0 {
+      if versioncmp($_apache_version, '2.4') >= 0 {
         apache::mpm{ 'event':
-          apache_version => $apache_version,
+          apache_version => $_apache_version,
         }
       }
     }
     'debian','freebsd' : {
       apache::mpm{ 'event':
-        apache_version => $apache_version,
+        apache_version => $_apache_version,
+      }
+    }
+    'gentoo': {
+      ::portage::makeconf { 'apache2_mpms':
+        content => 'event',
       }
     }
     default: {

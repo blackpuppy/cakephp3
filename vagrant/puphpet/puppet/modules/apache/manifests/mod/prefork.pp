@@ -5,13 +5,17 @@ class apache::mod::prefork (
   $serverlimit         = '256',
   $maxclients          = '256',
   $maxrequestsperchild = '4000',
-  $apache_version      = $::apache::apache_version,
+  $apache_version      = undef,
 ) {
+  include ::apache
+  $_apache_version = pick($apache_version, $apache::apache_version)
   if defined(Class['apache::mod::event']) {
     fail('May not include both apache::mod::prefork and apache::mod::event on the same node')
   }
-  if defined(Class['apache::mod::itk']) {
-    fail('May not include both apache::mod::prefork and apache::mod::itk on the same node')
+  if versioncmp($_apache_version, '2.4') < 0 {
+    if defined(Class['apache::mod::itk']) {
+      fail('May not include both apache::mod::prefork and apache::mod::itk on the same node')
+    }
   }
   if defined(Class['apache::mod::peruser']) {
     fail('May not include both apache::mod::prefork and apache::mod::peruser on the same node')
@@ -22,7 +26,7 @@ class apache::mod::prefork (
   File {
     owner => 'root',
     group => $::apache::params::root_group,
-    mode  => '0644',
+    mode  => $::apache::file_mode,
   }
 
   # Template uses:
@@ -37,14 +41,14 @@ class apache::mod::prefork (
     content => template('apache/mod/prefork.conf.erb'),
     require => Exec["mkdir ${::apache::mod_dir}"],
     before  => File[$::apache::mod_dir],
-    notify  => Service['httpd'],
+    notify  => Class['apache::service'],
   }
 
   case $::osfamily {
     'redhat': {
-      if versioncmp($apache_version, '2.4') >= 0 {
+      if versioncmp($_apache_version, '2.4') >= 0 {
         ::apache::mpm{ 'prefork':
-          apache_version => $apache_version,
+          apache_version => $_apache_version,
         }
       }
       else {
@@ -54,13 +58,24 @@ class apache::mod::prefork (
           line    => '#HTTPD=/usr/sbin/httpd.worker',
           match   => '#?HTTPD=/usr/sbin/httpd.worker',
           require => Package['httpd'],
-          notify  => Service['httpd'],
+          notify  => Class['apache::service'],
         }
       }
     }
-    'debian', 'freebsd' : {
+    'debian', 'freebsd': {
+      ::apache::mpm{ 'prefork':
+        apache_version => $_apache_version,
+      }
+    }
+    'Suse': {
       ::apache::mpm{ 'prefork':
         apache_version => $apache_version,
+        lib_path       => '/usr/lib64/apache2-prefork',
+      }
+    }
+    'gentoo': {
+      ::portage::makeconf { 'apache2_mpms':
+        content => 'prefork',
       }
     }
     default: {

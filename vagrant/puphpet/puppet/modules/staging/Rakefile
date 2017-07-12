@@ -1,51 +1,41 @@
-require 'rubygems'
 require 'puppetlabs_spec_helper/rake_tasks'
+require 'puppet_blacksmith/rake_tasks'
+require 'voxpupuli/release/rake_tasks'
+require 'rubocop/rake_task'
+require 'puppet-strings/rake_tasks'
 
-def io_popen(command)
-  IO.popen(command) do |io|
-    io.each do |line|
-      print line
-      yield line if block_given?
-    end
-  end
+RuboCop::RakeTask.new(:rubocop) do |task|
+  # These make the rubocop experience maybe slightly less terrible
+  task.options = ['-D', '-S', '-E']
 end
 
-# Customize lint option
-task :lint do
-  PuppetLint.configuration.send("disable_80chars")
-  PuppetLint.configuration.send("disable_class_parameter_defaults")
+PuppetLint.configuration.log_format = '%{path}:%{linenumber}:%{check}:%{KIND}:%{message}'
+PuppetLint.configuration.fail_on_warnings = true
+PuppetLint.configuration.send('relative')
+PuppetLint.configuration.send('disable_140chars')
+PuppetLint.configuration.send('disable_class_inherits_from_params_class')
+PuppetLint.configuration.send('disable_documentation')
+PuppetLint.configuration.send('disable_single_quote_string_with_variables')
+
+exclude_paths = %w(
+  pkg/**/*
+  vendor/**/*
+  .vendor/**/*
+  spec/**/*
+)
+PuppetLint.configuration.ignore_paths = exclude_paths
+PuppetSyntax.exclude_paths = exclude_paths
+
+desc 'Run acceptance tests'
+RSpec::Core::RakeTask.new(:acceptance) do |t|
+  t.pattern = 'spec/acceptance'
 end
 
-desc "Validate manifests, templates, and ruby files in lib."
-task :validate do
-  Dir['manifests/**/*.pp'].each do |manifest|
-    sh "puppet parser validate --noop #{manifest}"
-  end
-  Dir['lib/**/*.rb'].each do |lib_file|
-    sh "ruby -c #{lib_file}"
-  end
-  Dir['templates/**/*.erb'].each do |template|
-    sh "erb -P -x -T '-' #{template} | ruby -c"
-  end
-end
-
-# Initialize vagrant instance for testing
-desc "Powers on Vagrant VMs with specific manifests"
-task :vagrant, :manifest do |t, args|
-  Rake::Task["spec_prep"].execute
-
-  prefix = "VAGRANT_MANIFEST='#{args[:manifest]||'init.pp'}'"
-
-  puts args[:manifest]
-  provision = false
-  io_popen("export #{prefix}; vagrant up --provider=vmware_fusion") do |line|
-    provision = true if line =~ /Machine is already running./
-  end
-  io_popen("export #{prefix}; vagrant provision") if provision
-end
-
-# Cleanup vagrant environment
-task :vagrant_clean do
-  `vagrant destroy -f`
-  Rake::Task["spec_clean"].execute
-end
+desc 'Run tests metadata_lint, lint, syntax, spec'
+task test: [
+  :metadata_lint,
+  :lint,
+  :syntax,
+  :spec,
+]
+# vim: syntax=ruby

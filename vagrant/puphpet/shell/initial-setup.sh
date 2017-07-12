@@ -2,66 +2,99 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
-VAGRANT_CORE_FOLDER=$(echo "$1")
+PUPHPET_CORE_DIR=/opt/puphpet
+PUPHPET_STATE_DIR=/opt/puphpet-state
 
-OS=$(/bin/bash "${VAGRANT_CORE_FOLDER}/shell/os-detect.sh" ID)
-CODENAME=$(/bin/bash "${VAGRANT_CORE_FOLDER}/shell/os-detect.sh" CODENAME)
+# Run from Vagrant CLI
+if [[ -d /vagrant ]]; then
+    if [[ ! -L ${PUPHPET_CORE_DIR} ]]; then
+        ln -s /vagrant/puphpet ${PUPHPET_CORE_DIR}
+    fi
 
-cat "${VAGRANT_CORE_FOLDER}/shell/ascii-art/self-promotion.txt"
-printf "\n"
-echo ""
+    # Run on local VM
+    if [[ -d /.puphpet-stuff ]] && [[ ! -L ${PUPHPET_STATE_DIR} ]]; then
+        ln -s /.puphpet-stuff ${PUPHPET_STATE_DIR}
+    elif [[ ! -d ${PUPHPET_STATE_DIR} ]]; then
+        mkdir ${PUPHPET_STATE_DIR}
+    fi
+else
+    if [[ ! -d ${PUPHPET_CORE_DIR} ]]; then
+        mkdir ${PUPHPET_CORE_DIR}
+    fi
 
-if [[ ! -d '/.puphpet-stuff' ]]; then
-    mkdir '/.puphpet-stuff'
-    echo 'Created directory /.puphpet-stuff'
+    if [[ ! -d ${PUPHPET_STATE_DIR} ]]; then
+        mkdir ${PUPHPET_STATE_DIR}
+    fi
 fi
 
-touch '/.puphpet-stuff/vagrant-core-folder.txt'
-echo "${VAGRANT_CORE_FOLDER}" > '/.puphpet-stuff/vagrant-core-folder.txt'
+OS=$(/bin/bash ${PUPHPET_CORE_DIR}/shell/os-detect.sh ID)
+CODENAME=$(/bin/bash ${PUPHPET_CORE_DIR}/shell/os-detect.sh CODENAME)
+RELEASE=$(/bin/bash ${PUPHPET_CORE_DIR}/shell/os-detect.sh RELEASE)
 
-if [[ -f '/.puphpet-stuff/initial-setup-base-packages' ]]; then
+if [[ -f ${PUPHPET_CORE_DIR}/shell/ascii-art/self-promotion.txt ]]; then
+    cat ${PUPHPET_CORE_DIR}/shell/ascii-art/self-promotion.txt
+    printf "\n"
+    echo ""
+fi
+
+if [[ -f ${PUPHPET_STATE_DIR}/initial-setup ]]; then
     exit 0
 fi
 
-if [ "${OS}" == 'debian' ] || [ "${OS}" == 'ubuntu' ]; then
-    echo 'Running initial-setup apt-get update'
-    apt-get update >/dev/null
-    echo 'Finished running initial-setup apt-get update'
+if [[ "${OS}" == 'debian' || "${OS}" == 'ubuntu' ]]; then
+    wget --quiet --tries=5 --connect-timeout=10 \
+        -O ${PUPHPET_STATE_DIR}/puppetlabs.gpg \
+        https://apt.puppetlabs.com/pubkey.gpg
+    apt-key add ${PUPHPET_STATE_DIR}/puppetlabs.gpg
 
-    echo 'Installing git'
-    apt-get -y install git-core >/dev/null
-    echo 'Finished installing git'
+    apt-get update
 
-    if [[ "${CODENAME}" == 'lucid' || "${CODENAME}" == 'precise' ]]; then
-        echo 'Installing basic curl packages'
-        apt-get -y install libcurl3 libcurl4-gnutls-dev curl >/dev/null
-        echo 'Finished installing basic curl packages'
+    apt-get -y install anacron iptables-persistent software-properties-common \
+        python-software-properties curl git-core build-essential
+
+    # Anacron configuration
+    cat >/etc/cron.weekly/autoupdt << 'EOL'
+#!/bin/bash
+
+apt-get update
+apt-get autoclean
+EOL
+
+    # Fixes https://github.com/mitchellh/vagrant/issues/1673
+    # Fixes https://github.com/mitchellh/vagrant/issues/7368
+    if [[ -d '/root' ]] && [[ -f '/root/.profile' ]]; then
+        grep -q -E '^(mesg n \|\| true)$' /root/.profile && \
+            sed -ri 's/^(mesg n \|\| true)$/tty -s \&\& mesg n/' /root/.profile
     fi
-
-    echo 'Installing build-essential packages'
-    apt-get -y install build-essential >/dev/null
-    echo 'Finished installing build-essential packages'
-elif [[ "${OS}" == 'centos' ]]; then
-    echo 'Adding repos: elrep, epel, scl'
-    perl -p -i -e 's@enabled=1@enabled=0@gi' /etc/yum/pluginconf.d/fastestmirror.conf
-    perl -p -i -e 's@#baseurl=http://mirror.centos.org/centos/\$releasever/os/\$basearch/@baseurl=http://mirror.rackspace.com/CentOS//\$releasever/os/\$basearch/\nenabled=1@gi' /etc/yum.repos.d/CentOS-Base.repo
-    perl -p -i -e 's@#baseurl=http://mirror.centos.org/centos/\$releasever/updates/\$basearch/@baseurl=http://mirror.rackspace.com/CentOS//\$releasever/updates/\$basearch/\nenabled=1@gi' /etc/yum.repos.d/CentOS-Base.repo
-    perl -p -i -e 's@#baseurl=http://mirror.centos.org/centos/\$releasever/extras/\$basearch/@baseurl=http://mirror.rackspace.com/CentOS//\$releasever/extras/\$basearch/\nenabled=1@gi' /etc/yum.repos.d/CentOS-Base.repo
-
-    yum -y --nogpgcheck install 'http://www.elrepo.org/elrepo-release-6-6.el6.elrepo.noarch.rpm' >/dev/null
-    yum -y --nogpgcheck install 'https://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm' >/dev/null
-    yum -y install centos-release-SCL >/dev/null
-    yum clean all >/dev/null
-    yum -y check-update >/dev/null
-    echo 'Finished adding repos: elrep, epel, scl'
-
-    echo 'Installing git'
-    yum -y install git >/dev/null
-    echo 'Finished installing git'
-
-    echo 'Installing Development Tools'
-    yum -y groupinstall 'Development Tools' >/dev/null
-    echo 'Finished installing Development Tools'
 fi
 
-touch '/.puphpet-stuff/initial-setup-base-packages'
+if [[ "${OS}" == 'centos' ]]; then
+    perl -p -i -e 's@enabled=1@enabled=0@gi' /etc/yum/pluginconf.d/fastestmirror.conf
+
+    if [ "${RELEASE}" == 6 ]; then
+        EL_REPO='http://www.elrepo.org/elrepo-release-6-6.el6.elrepo.noarch.rpm'
+        EPEL='http://dl.fedoraproject.org/pub/epel/epel-release-latest-6.noarch.rpm'
+    else
+        EL_REPO='http://www.elrepo.org/elrepo-release-7.0-2.el7.elrepo.noarch.rpm'
+        EPEL='http://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm'
+    fi
+
+    yum -y --nogpgcheck install "${EL_REPO}"
+    yum -y --nogpgcheck install "${EPEL}"
+    yum -y install centos-release-scl
+    yum clean all
+    yum -y check-update
+
+    yum -y install curl git
+    yum -y groupinstall 'Development Tools'
+fi
+
+# CentOS comes with tty enabled. RHEL has realized this is stupid, so we can
+# also safely disable it in PuPHPet boxes.
+if [[ ! -f ${PUPHPET_STATE_DIR}/disable-tty ]]; then
+    perl -pi'~' -e 's@Defaults(\s+)requiretty@Defaults !requiretty@g' /etc/sudoers
+
+    touch ${PUPHPET_STATE_DIR}/disable-tty
+fi
+
+touch ${PUPHPET_STATE_DIR}/initial-setup

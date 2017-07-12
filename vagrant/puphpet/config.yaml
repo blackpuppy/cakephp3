@@ -1,41 +1,58 @@
----
-vagrantfile-local:
+vagrantfile:
+    target: local
     vm:
-        box: puphpet/ubuntu1404-x64
-        box_url: puphpet/ubuntu1404-x64
-        hostname: 'cakephp3'
-        memory: '512'
-        cpus: '2'
-        chosen_provider: virtualbox
-        network:
-            private_network: 192.168.56.102
-            forwarded_port:
-                fRrF2nB2qdnK:
-                    host: '5663'
-                    guest: '22'
-        post_up_message: ''
         provider:
-            virtualbox:
-                modifyvm:
-                    natdnshostresolver1: on
-            vmware:
-                numvcpus: 1
-            parallels:
-                cpus: 1
+            local:
+                box: puphpet/ubuntu1604-x64
+                box_url: 'false'
+                box_version: '0'
+                chosen_virtualizer: virtualbox
+                virtualizers:
+                    virtualbox:
+                        modifyvm:
+                            natdnshostresolver1: false
+                        showgui: 0
+                    vmware:
+                        numvcpus: 1
+                    parallels:
+                        linked_clone: 0
+                        check_guest_tools: 0
+                        update_guest_tools: 0
+                machines:
+                    vflm_63h9qohvdcd8:
+                        id: cakephp3
+                        hostname: cakephp3.local
+                        network:
+                            private_network: 192.168.56.102
+                            forwarded_port:
+                                vflmnfp_5logwllhmr95:
+                                    host: '5663'
+                                    guest: '22'
+                        memory: '512'
+                        cpus: '1'
         provision:
             puppet:
-                manifests_path: puphpet/puppet
-                manifest_file: site.pp
-                module_path: puphpet/puppet/modules
+                manifests_path: puphpet/puppet/manifests
+                module_path:
+                    - puphpet/puppet/modules
+                    - puphpet/puppet/manifests
                 options:
                     - '--verbose'
                     - '--hiera_config /vagrant/puphpet/puppet/hiera.yaml'
-                    - '--parser future'
         synced_folder:
-            W3mMmljUir4R:
+            vflsf_2ziuxrfuw66o:
+                owner: www-data
+                group: www-data
                 source: ../
                 target: /var/www
                 sync_type: default
+                smb:
+                    smb_host: ''
+                    smb_username: ''
+                    smb_password: ''
+                    mount_options:
+                        dir_mode: '0775'
+                        file_mode: '0664'
                 rsync:
                     args:
                         - '--verbose'
@@ -43,33 +60,86 @@ vagrantfile-local:
                         - '-z'
                     exclude:
                         - .vagrant/
-                    auto: 'false'
+                        - .git/
+                    auto: 'true'
         usable_port_range:
             start: 10200
             stop: 10500
+        post_up_message: ''
     ssh:
-        host: null
-        port: null
-        private_key_path: null
+        host: 'false'
+        port: 'false'
+        private_key_path: 'false'
         username: vagrant
-        guest_port: null
-        keep_alive: true
-        forward_agent: false
-        forward_x11: false
+        guest_port: 'false'
+        keep_alive: '1'
+        forward_agent: 'false'
+        forward_x11: 'false'
         shell: 'bash -l'
+        insert_key: 'false'
     vagrant:
         host: detect
+    proxy:
+        http: ''
+        https: ''
+        ftp: ''
+        no_proxy: ''
 server:
     install: '1'
     packages:
         - htop
         - vim
+users_groups:
+    install: '1'
+    groups: {  }
+    users: {  }
+locale:
+    install: '1'
+    settings:
+        default_locale: en_US.UTF-8
+        locales:
+            - en_GB.UTF-8
+            - en_US.UTF-8
+        timezone: UTC
 firewall:
     install: '1'
-    rules: null
+    rules: {  }
+resolv:
+    install: '1'
+    nameservers:
+        - 8.8.8.8
+        - 8.8.4.4
+    domainname: ''
+    searchpath: {  }
+cron:
+    install: '1'
+    jobs: {  }
+nginx:
+    install: '0'
+    settings:
+        version: present
+        default_vhost: 1
+        proxy_buffers: '4 256k'
+        proxy_buffer_size: 128k
+        proxy_connect_timeout: 600s
+        proxy_send_timeout: 600s
+        proxy_read_timeout: 600s
+        names_hash_bucket_size: 128
+    upstreams: {  }
+    vhosts:
+        nxv_p1nmky3vlh5u:
+            server_name: awesome.dev
+            server_aliases:
+                - www.awesome.dev
+            www_root: /var/www/awesome
+            listen_port: '80'
+            client_max_body_size: 1m
+            ssl: '0'
+    proxies: {  }
 apache:
     install: '1'
     settings:
+        version: 2.4
         user: www-data
         group: www-data
         default_vhost: true
@@ -79,55 +149,30 @@ apache:
     modules:
         - rewrite
     vhosts:
-        j3gbljGxnhhQ:
-            servername: cakephp3.dev
+        av_cja2jmmkcgbl:
+            servername: cakephp3.local
             serveraliases:
-                - www.cakephp3.dev
-            docroot: /var/www/src/cakephp3
+                - www.cakephp3.local
+            docroot: /var/www/src/cakephp3/webroot
             port: '80'
-            setenv:
-                - 'APP_ENV dev'
-            override:
-                - All
-            options:
-                - Indexes
-                - FollowSymLinks
-                - MultiViews
-            engine: php
             custom_fragment: ''
-            ssl_cert: ''
-            ssl_key: ''
-            ssl_chain: ''
-            ssl_certs_dir: ''
-    mod_pagespeed: 0
-nginx:
-    install: '0'
+            ssl: '0'
+            ssl_cert: LETSENCRYPT
+            ssl_key: LETSENCRYPT
+            ssl_chain: LETSENCRYPT
+            ssl_certs_dir: LETSENCRYPT
+            ssl_protocol: ''
+            ssl_cipher: ''
+letsencrypt:
+    install: '1'
     settings:
-        default_vhost: 1
-        proxy_buffer_size: 128k
-        proxy_buffers: '4 256k'
-    vhosts:
-        fyKh5XZTaXrA:
-            server_name: awesome.dev
-            server_aliases:
-                - www.awesome.dev
-            www_root: /var/www/awesome
-            listen_port: '80'
-            location: \.php$
-            index_files:
-                - index.html
-                - index.htm
-                - index.php
-            envvars:
-                - 'APP_ENV dev'
-            engine: php
-            ssl_cert: ''
-            ssl_key: ''
+        email: ''
+        webserver_service: ''
+    domains: {  }
 php:
     install: '1'
-    version: '56'
-    composer: '1'
-    composer_home: ''
+    settings:
+        version: '7.1'
     modules:
         php:
             - cli
@@ -141,23 +186,14 @@ php:
         pecl:
             - pecl_http
     ini:
-        display_errors: On
+        display_errors: 'On'
         error_reporting: '-1'
         session.save_path: /var/lib/php/session
-    timezone: Asia/Singapore
-    mod_php: 0
-hhvm:
-    install: '0'
-    nightly: 0
+    fpm_ini:
+        error_log: /var/log/php-fpm.log
+    fpm_pools: {  }
     composer: '1'
     composer_home: ''
-    settings:
-        host: 127.0.0.1
-        port: '9000'
-    ini:
-        display_errors: On
-        error_reporting: '-1'
-    timezone: null
 xdebug:
     install: '0'
     settings:
@@ -167,76 +203,107 @@ xdebug:
         xdebug.remote_enable: '1'
         xdebug.remote_handler: dbgp
         xdebug.remote_port: '9000'
+blackfire:
+    install: '0'
+    settings:
+        server_id: ''
+        server_token: ''
+        agent:
+            http_proxy: ''
+            https_proxy: ''
+            log_file: stderr
+            log_level: '1'
+        php:
+            agent_timeout: '0.25'
+            log_file: ''
+            log_level: '1'
 xhprof:
     install: '0'
+wpcli:
+    install: '0'
+    version: v1.1.0
 drush:
     install: '0'
     version: 6.3.0
 ruby:
     install: '1'
     versions:
-        plpgY2dHyDgv:
+        rv_kjm8qy42gpvo:
             version: ''
-nodejs:
-    install: '0'
-    npm_packages: {  }
 python:
     install: '1'
     packages: {  }
     versions:
-        cEcv3kY0Oty4:
-            version: ''
+        pyenv_8ql2qe33982c:
+            version: 3.4.0
+nodejs:
+    install: '0'
+    settings:
+        version: '7'
+    npm_packages: {  }
+mariadb:
+    install: '0'
+    settings:
+        version: '10.1'
+        root_password: '123'
+        override_options: {  }
+    users: {  }
+    databases: {  }
+    grants: {  }
 mysql:
     install: '1'
-    root_password: P@55w0rd
-    adminer: 0
-    databases:
-        3NaYd8ZhkVfd:
-            grant:
-                - ALL
+    settings:
+        version: '5.7'
+        root_password: P@55w0rd
+        override_options: {  }
+    users:
+        mysqlnu_84730oi0loze:
             name: cakephp3
-            host: localhost
-            user: cakephp3
             password: 'I*$o$&(y'
-            sql_file: /var/www/database/backup/2014-10-19_cakephp_blog.sql
+    databases:
+        mysqlnd_zxvt6t88dig2:
+            name: cakephp3
+            sql: /var/www/database/backup/2014-10-19_cakephp_blog.sql
+    grants:
+        mysqlng_rhdex54ndeqq:
+            user: cakephp3
+            table: 'cakephp3.*'
+            privileges:
+                - ALL
 postgresql:
     install: '0'
     settings:
-        root_password: '123'
-        user_group: postgres
-        encoding: UTF8
-        version: '9.3'
+        global:
+            encoding: UTF8
+            version: '9.4'
+        server:
+            postgres_password: ''
     databases: {  }
-    adminer: 0
-mariadb:
-    install: '0'
-    root_password: '123'
-    adminer: 0
-    databases: {  }
-    version: '10.0'
-sqlite:
-    install: '0'
-    adminer: 0
-    databases: {  }
+    users: {  }
+    grants: {  }
 mongodb:
     install: '0'
     settings:
-        auth: 1
+        bind_ip: 127.0.0.1
         port: '27017'
+    globals:
+        version: 2.6.0
     databases: {  }
 redis:
     install: '0'
     settings:
-        conf_port: '6379'
-mailcatcher:
+        port: '6379'
+sqlite:
+    install: '0'
+    databases: {  }
+mailhog:
     install: '0'
     settings:
         smtp_ip: 0.0.0.0
         smtp_port: 1025
         http_ip: 0.0.0.0
-        http_port: '1080'
-        mailcatcher_path: /usr/local/rvm/wrappers/default
-        from_email_method: inline
+        http_port: '8025'
+        path: /usr/local/bin/mailhog
 beanstalkd:
     install: '0'
     settings:
@@ -248,14 +315,22 @@ beanstalkd:
         binlogfsync: null
         binlogsize: '10485760'
     beanstalk_console: 0
-    binlogdir: /var/lib/beanstalkd/binlog
 rabbitmq:
     install: '0'
     settings:
         port: '5672'
+    users: {  }
+    vhosts: {  }
+    plugins: {  }
 elastic_search:
     install: '0'
     settings:
+        version: 2.3.1
         java_install: true
-        autoupgrade: true
+    instances: {  }
+solr:
+    install: '0'
+    settings:
+        version: 5.5.2
+        port: '8984'
 

@@ -1,9 +1,7 @@
 require 'spec_helper'
 
 describe 'apache::mod::speling', :type => :class do
-  let :pre_condition do
-    'include apache'
-  end
+  it_behaves_like "a mod class, without including apache"
   context "on a Debian OS" do
     let :facts do
       {
@@ -15,6 +13,7 @@ describe 'apache::mod::speling', :type => :class do
         :id                     => 'root',
         :kernel                 => 'Linux',
         :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
       }
     end
     it { is_expected.to contain_apache__mod('speling') }
@@ -30,6 +29,7 @@ describe 'apache::mod::speling', :type => :class do
         :id                     => 'root',
         :kernel                 => 'Linux',
         :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
       }
     end
     it { is_expected.to contain_apache__mod('speling') }

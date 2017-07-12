@@ -2,66 +2,51 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
-VAGRANT_CORE_FOLDER=$(cat '/.puphpet-stuff/vagrant-core-folder.txt')
+PUPHPET_CORE_DIR=/opt/puphpet
+PUPHPET_STATE_DIR=/opt/puphpet-state
 
-OS=$(/bin/bash "${VAGRANT_CORE_FOLDER}/shell/os-detect.sh" ID)
-RELEASE=$(/bin/bash "${VAGRANT_CORE_FOLDER}/shell/os-detect.sh" RELEASE)
-CODENAME=$(/bin/bash "${VAGRANT_CORE_FOLDER}/shell/os-detect.sh" CODENAME)
+OS=$(/bin/bash "${PUPHPET_CORE_DIR}/shell/os-detect.sh" ID)
+RELEASE=$(/bin/bash "${PUPHPET_CORE_DIR}/shell/os-detect.sh" RELEASE)
+CODENAME=$(/bin/bash "${PUPHPET_CORE_DIR}/shell/os-detect.sh" CODENAME)
 
-function check_puppet_symlink() {
-    if [[ -f '/usr/local/rvm/gems/ruby-1.9.3-p547/bin/puppet' ]]; then
-        rm '/usr/bin/puppet'
-        ln -s '/usr/local/rvm/gems/ruby-1.9.3-p547/bin/puppet' '/usr/bin/puppet'
-
-        return 0;
+if [[ ! -f "${PUPHPET_STATE_DIR}/install-puppet" ]]; then
+    if [[ "${OS}" == 'debian' || "${OS}" == 'ubuntu' ]]; then
+        URL="https://apt.puppetlabs.com/puppetlabs-release-pc1-${CODENAME}.deb"
+        wget --quiet --tries=5 --connect-timeout=10 \
+            -O "${PUPHPET_STATE_DIR}/puppetlabs-release-pc1.deb" \
+            ${URL}
+        dpkg -i "${PUPHPET_STATE_DIR}/puppetlabs-release-pc1.deb"
+        apt-get update
+        apt-get -y install puppet-agent=1.6*
     fi
 
-    # Puppet not installed
-    if [ ! -L '/usr/bin/puppet' ]; then
-        rm '/.puphpet-stuff/install-puppet'
+    if [[ "${OS}" == 'centos' ]]; then
+        if [ "${RELEASE}" == 6 ]; then
+            rpm -Uvh https://yum.puppetlabs.com/puppetlabs-release-pc1-el-6.noarch.rpm
+            yum -y install puppet-agent-1.6*
+        fi
 
-        return 0;
-    fi
-
-    PUPPET_SYMLINK=$(ls -l /usr/bin/puppet);
-
-    # If puppet symlink is old-style pointing to /usr/local/rvm/wrappers/default/ruby
-    if [ "grep '/usr/local/rvm/wrappers/default' ${PUPPET_SYMLINK}" ]; then
-        rm '/usr/bin/puppet'
-
-        if [[ -f '/usr/local/rvm/gems/ruby-1.9.3-p547/bin/puppet' ]]; then
-            ln -s '/usr/local/rvm/gems/ruby-1.9.3-p547/bin/puppet' '/usr/bin/puppet'
-
-        else
-            rm '/.puphpet-stuff/install-puppet'
+        if [ "${RELEASE}" == 7 ]; then
+            rpm -Uvh https://yum.puppetlabs.com/puppetlabs-release-pc1-el-7.noarch.rpm
+            yum -y install puppet-agent-1.6*
         fi
     fi
-}
 
-check_puppet_symlink
-
-if [[ -f '/.puphpet-stuff/install-puppet' ]]; then
-    exit 0
+    rm -f /usr/bin/puppet
+    ln -s /opt/puppetlabs/bin/puppet /usr/bin/puppet
+    touch "${PUPHPET_STATE_DIR}/install-puppet"
 fi
 
-if [ "${OS}" == 'debian' ] || [ "${OS}" == 'ubuntu' ]; then
-    apt-get -y install augeas-tools libaugeas-dev
-elif [[ "${OS}" == 'centos' ]]; then
-    yum -y install augeas-devel
+GEM=/opt/puppetlabs/puppet/bin/gem
+
+if ! (${GEM} list deep_merge | grep -q 'deep_merge'); then
+    ${GEM} install deep_merge -v 1.0.1 --no-ri --no-rdoc
 fi
 
-echo 'Installing Puppet requirements'
-/usr/bin/gem install haml hiera facter json ruby-augeas --no-document
-echo 'Finished installing Puppet requirements'
-
-echo 'Installing Puppet 3.4.3'
-/usr/bin/gem install puppet --version 3.4.3 --no-document
-
-if [[ -f '/usr/bin/puppet' ]]; then
-    mv /usr/bin/puppet /usr/bin/puppet-old
+if ! (${GEM} list activesupport | grep -q 'activesupport'); then
+    ${GEM} install activesupport -v 4.2.6 --no-ri --no-rdoc
 fi
 
-ln -s /usr/local/rvm/gems/ruby-1.9.3-p*/bin/puppet /usr/bin/puppet
-echo 'Finished installing Puppet 3.4.3'
-
-touch '/.puphpet-stuff/install-puppet'
+if ! (${GEM} list vine | grep -q 'vine'); then
+    ${GEM} install vine -v 0.2 --no-ri --no-rdoc
+fi

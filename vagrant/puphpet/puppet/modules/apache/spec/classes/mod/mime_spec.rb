@@ -6,9 +6,7 @@ def general_mime_specs
 end
 
 describe 'apache::mod::mime', :type => :class do
-  let :pre_condition do
-    'include apache'
-  end
+  it_behaves_like "a mod class, without including apache"
 
   context "On a Debian OS with default params", :compile do
     let :facts do
@@ -21,6 +19,7 @@ describe 'apache::mod::mime', :type => :class do
         :id                     => 'root',
         :kernel                 => 'Linux',
         :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
       }
     end
 
@@ -40,6 +39,7 @@ describe 'apache::mod::mime', :type => :class do
         :id                     => 'root',
         :kernel                 => 'Linux',
         :path                   => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        :is_pe                  => false,
       }
     end
 

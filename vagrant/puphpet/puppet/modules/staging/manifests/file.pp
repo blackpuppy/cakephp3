@@ -10,8 +10,8 @@
 #   resource as necessary.
 #
 define staging::file (
-  $source,              #: the source file location, supports local files, puppet://, http://, https://, ftp://
-  $target      = undef, #: the target staging directory, if unspecified ${staging::path}/${caller_module_name}
+  $source,              #: the source file location, supports local files, puppet://, http://, https://, ftp://, s3://
+  $target      = undef, #: the target file location, if unspecified ${staging::path}/${subdir}/${name}
   $username    = undef, #: https or ftp username
   $certificate = undef, #: https certificate file
   $password    = undef, #: https or ftp user password or https certificate password
@@ -19,10 +19,12 @@ define staging::file (
   $timeout     = undef, #: the the time to wait for the file transfer to complete
   $curl_option = undef, #: options to pass to curl
   $wget_option = undef, #: options to pass to wget
+  $tries       = undef, #: amount of retries for the file transfer when non transient connection errors exist
+  $try_sleep   = undef, #: time to wait between retries for the file transfer
   $subdir      = $caller_module_name
 ) {
 
-  include staging
+  include ::staging
 
   $quoted_source = shellquote($source)
 
@@ -46,29 +48,33 @@ define staging::file (
     cwd         => $staging_dir,
     creates     => $target_file,
     timeout     => $timeout,
+    try_sleep   => $try_sleep,
+    tries       => $tries,
     logoutput   => on_failure,
   }
 
   case $::staging_http_get {
     'curl', default: {
-      $http_get        = "curl ${curl_option} -f -L -o ${name} ${quoted_source}"
-      $http_get_passwd = "curl ${curl_option} -f -L -o ${name} -u ${username}:${password} ${quoted_source}"
-      $http_get_cert   = "curl ${curl_option} -f -L -o ${name} -E ${certificate}:${password} ${quoted_source}"
-      $ftp_get         = "curl ${curl_option} -o ${name} ${quoted_source}"
-      $ftp_get_passwd  = "curl ${curl_option} -o ${name} -u ${username}:${password} ${quoted_source}"
+      $quoted_credentials = shellquote("${username}:${password}")
+      $http_get           = "curl ${curl_option} -f -L -o ${target_file} ${quoted_source}"
+      $http_get_passwd    = "curl ${curl_option} -f -L -o ${target_file} -u ${quoted_credentials} ${quoted_source}"
+      $http_get_cert      = "curl ${curl_option} -f -L -o ${target_file} -E ${certificate}:${password} ${quoted_source}"
+      $ftp_get            = "curl ${curl_option} -o ${target_file} ${quoted_source}"
+      $ftp_get_passwd     = "curl ${curl_option} -o ${target_file} -u ${username}:${password} ${quoted_source}"
     }
     'wget': {
-      $http_get        = "wget ${wget_option} -O ${name} ${quoted_source}"
-      $http_get_passwd = "wget ${wget_option} -O ${name} --user=${username} --password=${password} ${quoted_source}"
-      $http_get_cert   = "wget ${wget_option} -O ${name} --user=${username} --certificate=${certificate} ${quoted_source}"
+      $quoted_password = shellquote($password)
+      $http_get        = "wget ${wget_option} -O ${target_file} ${quoted_source}"
+      $http_get_passwd = "wget ${wget_option} -O ${target_file} --user=${username} --password=${quoted_password} ${quoted_source}"
+      $http_get_cert   = "wget ${wget_option} -O ${target_file} --user=${username} --certificate=${certificate} ${quoted_source}"
       $ftp_get         = $http_get
       $ftp_get_passwd  = $http_get_passwd
     }
     'powershell':{
       $http_get           = "powershell.exe -Command \"\$wc = New-Object System.Net.WebClient;\$wc.DownloadFile('${source}','${target_file}')\""
       $ftp_get            = $http_get
-      $http_get_password  = "powershell.exe -Command \"\$wc = (New-Object System.Net.WebClient);\$wc.Credentials = New-Object System.Net.NetworkCredential('${username}','${password}');\$wc.DownloadFile(${source},${target_file})\""
-      $ftp_get_password   = $http_get_password
+      $http_get_passwd  = "powershell.exe -Command \"\$wc = New-Object System.Net.WebClient;\$wc.Credentials = New-Object System.Net.NetworkCredential('${username}','${password}');\$wc.DownloadFile('${source}','${target_file}')\""
+      $ftp_get_passwd   = $http_get_passwd
     }
   }
 
@@ -77,6 +83,20 @@ define staging::file (
       file { $target_file:
         source  => $source,
         replace => false,
+      }
+    }
+    /^[A-Za-z]:/: {
+      if versioncmp($::puppetversion, '3.4.0') >= 0 {
+        file { $target_file:
+          source             => $source,
+          replace            => false,
+          source_permissions => ignore,
+        }
+      } else {
+        file { $target_file:
+          source  => $source,
+          replace => false,
+        }
       }
     }
     /^puppet:\/\//: {
@@ -107,8 +127,14 @@ define staging::file (
         command     => $command,
       }
     }
+    /^s3:\/\//: {
+      $command = "aws s3 cp ${source} ${target_file}"
+      exec { $target_file:
+        command   => $command,
+      }
+    }
     default: {
-      fail("stage::file: do not recognize source ${source}.")
+      fail("staging::file: do not recognize source ${source}.")
     }
   }
 

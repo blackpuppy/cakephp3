@@ -1,15 +1,20 @@
 require 'spec_helper_acceptance'
 require_relative './version.rb'
 
-describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact('osfamily')) do
+describe 'apache::vhost define' do
   context 'no default vhosts' do
     it 'should create no default vhosts' do
       pp = <<-EOS
         class { 'apache':
           default_vhost => false,
           default_ssl_vhost => false,
-          service_ensure => stopped
+          service_ensure => stopped,
         }
+        if ($::osfamily == 'Suse') {
+          exec { '/usr/bin/gensslcert':
+            require => Class['apache'],
+          }
+         }
       EOS
 
       apply_manifest(pp, :catch_failures => true)
@@ -72,7 +77,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     it 'should configure an apache vhost' do
       pp = <<-EOS
         class { 'apache': }
-        file { '#{$run_dir}':
+        file { '/var/www':
           ensure  => 'directory',
           recurse => true,
         }
@@ -80,7 +85,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
         apache::vhost { 'first.example.com':
           port    => '80',
           docroot => '/var/www/first',
-          require => File['#{$run_dir}'],
+          require => File['/var/www'],
         }
       EOS
       apply_manifest(pp, :catch_failures => true)
@@ -103,6 +108,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
             { 'path' => '/foo', 'url' => 'http://backend-foo/'},
           ],
         proxy_preserve_host   => true,
+        proxy_error_override  => true,
         }
       EOS
       apply_manifest(pp, :catch_failures => true)
@@ -113,7 +119,39 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       it { is_expected.to contain "ServerName proxy.example.com" }
       it { is_expected.to contain "ProxyPass" }
       it { is_expected.to contain "ProxyPreserveHost On" }
+      it { is_expected.to contain "ProxyErrorOverride On" }
+      it { is_expected.not_to contain "ProxyAddHeaders" }
       it { is_expected.not_to contain "<Proxy \*>" }
+    end
+  end
+
+  unless (fact('operatingsystem') == 'SLES' and fact('operatingsystemmajorrelease') <= '10')
+    context 'new proxy vhost on port 80' do
+      it 'should configure an apache proxy vhost' do
+        pp = <<-EOS
+          class { 'apache': }
+          apache::vhost { 'proxy.example.com':
+            port    => '80',
+            docroot => '#{$docroot}/proxy',
+            proxy_pass_match => [
+              { 'path' => '/foo', 'url' => 'http://backend-foo/'},
+            ],
+          proxy_preserve_host   => true,
+          proxy_error_override  => true,
+          }
+        EOS
+        apply_manifest(pp, :catch_failures => true)
+      end
+
+      describe file("#{$vhost_dir}/25-proxy.example.com.conf") do
+        it { is_expected.to contain '<VirtualHost \*:80>' }
+        it { is_expected.to contain "ServerName proxy.example.com" }
+        it { is_expected.to contain "ProxyPassMatch /foo http://backend-foo/" }
+        it { is_expected.to contain "ProxyPreserveHost On" }
+        it { is_expected.to contain "ProxyErrorOverride On" }
+        it { is_expected.not_to contain "ProxyAddHeaders" }
+        it { is_expected.not_to contain "<Proxy \*>" }
+      end
     end
   end
 
@@ -144,7 +182,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
 
     describe service($service_name) do
-      it { is_expected.to be_enabled }
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { is_expected.to be_running }
     end
 
@@ -161,13 +203,118 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
   end
 
+  context 'new vhost with multiple IP addresses on port 80' do
+    it 'should configure one apache vhost with 2 ip addresses' do
+      pp = <<-EOS
+        class { 'apache':
+          default_vhost => false,
+        }
+        apache::vhost { 'example.com':
+          port     => '80',
+          ip       => ['127.0.0.1','127.0.0.2'],
+          ip_based => true,
+          docroot  => '/var/www/html',
+        }
+        host { 'host1.example.com': ip => '127.0.0.1', }
+        host { 'host2.example.com': ip => '127.0.0.2', }
+        file { '/var/www/html/index.html':
+          ensure  => file,
+          content => "Hello from vhost\\n",
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe service($service_name) do
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
+      it { is_expected.to be_running }
+    end
+
+    describe file("#{$vhost_dir}/25-example.com.conf") do
+      it { is_expected.to contain '<VirtualHost 127.0.0.1:80 127.0.0.2:80>' }
+      it { is_expected.to contain "ServerName example.com" }
+    end
+
+    describe file($ports_file) do
+      it { is_expected.to be_file }
+      it { is_expected.to contain 'Listen 127.0.0.1:80' }
+      it { is_expected.to contain 'Listen 127.0.0.2:80' }
+      it { is_expected.not_to contain 'NameVirtualHost 127.0.0.1:80' }
+      it { is_expected.not_to contain 'NameVirtualHost 127.0.0.2:80' }
+    end
+
+    it 'should answer to host1.example.com' do
+      shell("/usr/bin/curl host1.example.com:80", {:acceptable_exit_codes => 0}) do |r|
+        expect(r.stdout).to eq("Hello from vhost\n")
+      end
+    end
+
+    it 'should answer to host2.example.com' do
+      shell("/usr/bin/curl host2.example.com:80", {:acceptable_exit_codes => 0}) do |r|
+        expect(r.stdout).to eq("Hello from vhost\n")
+      end
+    end
+  end
+
+  context 'new vhost with IPv6 address on port 80', :ipv6 do
+    it 'should configure one apache vhost with an ipv6 address' do
+      pp = <<-EOS
+        class { 'apache':
+          default_vhost  => false,
+        }
+        apache::vhost { 'example.com':
+          port           => '80',
+          ip             => '::1',
+          ip_based       => true,
+          docroot        => '/var/www/html',
+        }
+        host { 'ipv6.example.com': ip => '::1', }
+        file { '/var/www/html/index.html':
+          ensure  => file,
+          content => "Hello from vhost\\n",
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe service($service_name) do
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
+      it { is_expected.to be_running }
+    end
+
+    describe file("#{$vhost_dir}/25-example.com.conf") do
+      it { is_expected.to contain '<VirtualHost [::1]:80>' }
+      it { is_expected.to contain "ServerName example.com" }
+    end
+
+    describe file($ports_file) do
+      it { is_expected.to be_file }
+      it { is_expected.to contain 'Listen [::1]:80' }
+      it { is_expected.not_to contain 'NameVirtualHost [::1]:80' }
+    end
+
+    it 'should answer to ipv6.example.com' do
+      shell("/usr/bin/curl ipv6.example.com:80", {:acceptable_exit_codes => 0}) do |r|
+        expect(r.stdout).to eq("Hello from vhost\n")
+      end
+    end
+  end
+
   context 'apache_directories' do
     describe 'readme example, adapted' do
       it 'should configure a vhost with Files' do
         pp = <<-EOS
           class { 'apache': }
 
-          if versioncmp($apache::apache_version, '2.4') >= 0 {
+          if versioncmp($apache_version, '2.4') >= 0 {
             $_files_match_directory = { 'path' => '(\.swp|\.bak|~)$', 'provider' => 'filesmatch', 'require' => 'all denied', }
           } else {
             $_files_match_directory = { 'path' => '(\.swp|\.bak|~)$', 'provider' => 'filesmatch', 'deny' => 'from all', }
@@ -196,7 +343,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
 
       describe service($service_name) do
-        it { is_expected.to be_enabled }
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
         it { is_expected.to be_running }
       end
 
@@ -211,7 +362,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
         pp = <<-EOS
           class { 'apache': }
 
-          if versioncmp($apache::apache_version, '2.4') >= 0 {
+          if versioncmp($apache_version, '2.4') >= 0 {
             $_files_match_directory = { 'path' => 'private.html$', 'provider' => 'filesmatch', 'require' => 'all denied' }
           } else {
             $_files_match_directory = [
@@ -254,7 +405,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
 
       describe service($service_name) do
-        it { is_expected.to be_enabled }
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
         it { is_expected.to be_running }
       end
 
@@ -288,7 +443,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
 
       describe service($service_name) do
-        it { is_expected.to be_enabled }
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
         it { is_expected.to be_running }
       end
 
@@ -298,7 +457,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
     end
 
-    describe 'Satisfy and Auth directive' do
+    describe 'Satisfy and Auth directive', :unless => $apache_version == '2.4' do
       it 'should configure a vhost with Satisfy and Auth directive' do
         pp = <<-EOS
           class { 'apache': }
@@ -362,7 +521,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
 
       describe service($service_name) do
-        it { should be_enabled }
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
         it { should be_running }
       end
 
@@ -379,8 +542,8 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
 
   case fact('lsbdistcodename')
   when 'precise', 'wheezy'
-    context 'vhost fallbackresouce example' do
-      it 'should configure a vhost with Fallbackresource' do
+    context 'vhost FallbackResource example' do
+      it 'should configure a vhost with FallbackResource' do
         pp = <<-EOS
         class { 'apache': }
         apache::vhost { 'fallback.example.net':
@@ -397,7 +560,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       end
 
       describe service($service_name) do
-        it { is_expected.to be_enabled }
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
         it { is_expected.to be_running }
       end
 
@@ -438,7 +605,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
 
     describe service($service_name) do
-      it { is_expected.to be_enabled }
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { is_expected.to be_running }
     end
 
@@ -484,7 +655,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
 
     describe service($service_name) do
-      it { is_expected.to be_enabled }
+      if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+        pending 'Should be enabled - Bug 760616 on Debian 8'
+      else
+        it { should be_enabled }
+      end
       it { is_expected.to be_running }
     end
 
@@ -492,6 +667,53 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       shell("/usr/bin/curl --max-redirs 0 proxy.example.com:80") do |r|
         expect(r.stdout).to eq("Hello from localhost\n")
         expect(r.exit_code).to eq(0)
+      end
+    end
+  end
+
+  unless (fact('operatingsystem') == 'SLES' and fact('operatingsystemmajorrelease') <= '10')
+    context 'proxy_pass_match for alternative vhost' do
+      it 'should configure a local vhost and a proxy vhost' do
+        apply_manifest(%{
+          class { 'apache': default_vhost => false, }
+          apache::vhost { 'localhost':
+            docroot => '/var/www/local',
+            ip      => '127.0.0.1',
+            port    => '8888',
+          }
+          apache::listen { '*:80': }
+          apache::vhost { 'proxy.example.com':
+            docroot    => '/var/www',
+            port       => '80',
+            add_listen => false,
+            proxy_pass_match => {
+              'path' => '/',
+              'url'  => 'http://localhost:8888/subdir/',
+            },
+          }
+          host { 'proxy.example.com': ip => '127.0.0.1', }
+          file { ['/var/www/local', '/var/www/local/subdir']: ensure => directory, }
+          file { '/var/www/local/subdir/index.html':
+            ensure  => file,
+            content => "Hello from localhost\\n",
+          }
+                      }, :catch_failures => true)
+      end
+
+      describe service($service_name) do
+        if (fact('operatingsystem') == 'Debian' && fact('operatingsystemmajrelease') == '8')
+          pending 'Should be enabled - Bug 760616 on Debian 8'
+        else
+          it { should be_enabled }
+        end
+        it { is_expected.to be_running }
+      end
+
+      it 'should get a response from the back end' do
+        shell("/usr/bin/curl --max-redirs 0 proxy.example.com:80") do |r|
+          expect(r.stdout).to eq("Hello from localhost\n")
+          expect(r.exit_code).to eq(0)
+        end
       end
     end
   end
@@ -513,6 +735,34 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     describe file($ports_file) do
       it { is_expected.to be_file }
       it { is_expected.not_to contain 'NameVirtualHost test.server' }
+    end
+    describe file("#{$vhost_dir}/25-test.server.conf") do
+      it { is_expected.to be_file }
+      it { is_expected.to contain "ServerName test.server" }
+    end
+  end
+
+  describe 'ip_based and no servername' do
+    it 'applies cleanly' do
+      pp = <<-EOS
+        class { 'apache': }
+        host { 'test.server': ip => '127.0.0.1' }
+        apache::vhost { 'test.server':
+          docroot    => '/tmp',
+          ip_based   => true,
+          servername => '',
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe file($ports_file) do
+      it { is_expected.to be_file }
+      it { is_expected.not_to contain 'NameVirtualHost test.server' }
+    end
+    describe file("#{$vhost_dir}/25-test.server.conf") do
+      it { is_expected.to be_file }
+      it { is_expected.not_to contain "ServerName" }
     end
   end
 
@@ -581,7 +831,11 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       it { is_expected.to be_file }
       if fact('osfamily') == 'RedHat' and fact('operatingsystemmajrelease') == '7'
         it { is_expected.not_to contain 'NameVirtualHost test.server' }
-      elsif fact('operatingsystem') == 'Ubuntu' and fact('operatingsystemrelease') =~ /(14\.04|13\.10)/
+      elsif fact('operatingsystem') == 'Ubuntu' and fact('operatingsystemrelease') =~ /(14\.04|13\.10|16\.04)/
+        it { is_expected.not_to contain 'NameVirtualHost test.server' }
+      elsif fact('operatingsystem') == 'Debian' and fact('operatingsystemmajrelease') == '8'
+        it { is_expected.not_to contain 'NameVirtualHost test.server' }
+      elsif fact('operatingsystem') == 'SLES' and fact('operatingsystemrelease') >= '12'
         it { is_expected.not_to contain 'NameVirtualHost test.server' }
       else
         it { is_expected.to contain 'NameVirtualHost test.server' }
@@ -761,6 +1015,34 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
   end
 
+  describe 'multiple access_logs' do
+    it 'applies cleanly' do
+      pp = <<-EOS
+        class { 'apache': }
+        host { 'test.server': ip => '127.0.0.1' }
+        apache::vhost { 'test.server':
+          docroot            => '/tmp',
+          logroot            => '/tmp',
+          access_logs => [
+            {'file' => 'log1'},
+            {'file' => 'log2', 'env' => 'admin' },
+            {'file' => '/var/tmp/log3', 'format' => '%h %l'},
+            {'syslog' => 'syslog' }
+          ]
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe file("#{$vhost_dir}/25-test.server.conf") do
+      it { is_expected.to be_file }
+      it { is_expected.to contain 'CustomLog "/tmp/log1" combined' }
+      it { is_expected.to contain 'CustomLog "/tmp/log2" combined env=admin' }
+      it { is_expected.to contain 'CustomLog "/var/tmp/log3" "%h %l"' }
+      it { is_expected.to contain 'CustomLog "syslog" combined' }
+    end
+  end
+
   describe 'aliases' do
     it 'applies cleanly' do
       pp = <<-EOS
@@ -768,7 +1050,10 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
         host { 'test.server': ip => '127.0.0.1' }
         apache::vhost { 'test.server':
           docroot    => '/tmp',
-          aliases => [{ alias => '/image', path => '/ftp/pub/image' }],
+          aliases => [
+            { alias       => '/image'    , path => '/ftp/pub/image' }   ,
+            { scriptalias => '/myscript' , path => '/usr/share/myscript' }
+          ],
         }
       EOS
       apply_manifest(pp, :catch_failures => true)
@@ -777,6 +1062,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     describe file("#{$vhost_dir}/25-test.server.conf") do
       it { is_expected.to be_file }
       it { is_expected.to contain 'Alias /image "/ftp/pub/image"' }
+      it { is_expected.to contain 'ScriptAlias /myscript "/usr/share/myscript"' }
     end
   end
 
@@ -814,7 +1100,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
 
     describe file("#{$vhost_dir}/25-test.server.conf") do
       it { is_expected.to be_file }
-      it { is_expected.to contain 'ProxyPass          / test2/' }
+      it { is_expected.to contain 'ProxyPass        / test2/' }
     end
   end
 
@@ -828,7 +1114,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
           action  => 'php-fastcgi',
         }
       EOS
-      pp = pp + "\nclass { 'apache::mod::actions': }" if fact('osfamily') == 'Debian'
+      pp = pp + "\nclass { 'apache::mod::actions': }" if fact('osfamily') == 'Debian' || fact('osfamily') == 'Suse'
       apply_manifest(pp, :catch_failures => true)
     end
 
@@ -861,6 +1147,25 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
   end
 
+  describe 'rack_base_uris' do
+    unless fact('osfamily') == 'RedHat' or fact('operatingsystem') == 'SLES'
+      it 'applies cleanly' do
+        test = lambda do
+          pp = <<-EOS
+            class { 'apache': }
+            host { 'test.server': ip => '127.0.0.1' }
+            apache::vhost { 'test.server':
+              docroot          => '/tmp',
+              rack_base_uris  => ['/test'],
+            }
+          EOS
+          apply_manifest(pp, :catch_failures => true)
+        end
+        test.call
+      end
+    end
+  end
+
   describe 'no_proxy_uris' do
     it 'applies cleanly' do
       pp = <<-EOS
@@ -877,8 +1182,8 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
 
     describe file("#{$vhost_dir}/25-test.server.conf") do
       it { is_expected.to be_file }
-      it { is_expected.to contain 'ProxyPass          / http://test2/' }
       it { is_expected.to contain 'ProxyPass        http://test2/test !' }
+      it { is_expected.to contain 'ProxyPass        / http://test2/' }
     end
   end
 
@@ -902,40 +1207,6 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       it { is_expected.to contain 'Redirect permanent /images http://test.server/' }
     end
   end
-
-  # Passenger isn't even in EPEL on el-5
-  if default['platform'] !~ /^el-5/
-    if fact('osfamily') == 'RedHat' and fact('operatingsystemmajrelease') == '7'
-      pending('Since we don\'t have passenger on RHEL7 rack_base_uris tests will fail')
-    else
-      describe 'rack_base_uris' do
-        if fact('osfamily') == 'RedHat'
-          it 'adds epel' do
-            pp = "class { 'epel': }"
-            apply_manifest(pp, :catch_failures => true)
-          end
-        end
-
-        it 'applies cleanly' do
-          pp = <<-EOS
-            class { 'apache': }
-            host { 'test.server': ip => '127.0.0.1' }
-            apache::vhost { 'test.server':
-              docroot          => '/tmp',
-              rack_base_uris  => ['/test'],
-            }
-          EOS
-          apply_manifest(pp, :catch_failures => true)
-        end
-
-        describe file("#{$vhost_dir}/25-test.server.conf") do
-          it { is_expected.to be_file }
-          it { is_expected.to contain 'RackBaseURI /test' }
-        end
-      end
-    end
-  end
-
 
   describe 'request_headers' do
     it 'applies cleanly' do
@@ -967,6 +1238,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
             { comment => 'test',
               rewrite_cond => '%{HTTP_USER_AGENT} ^Lynx/ [OR]',
               rewrite_rule => ['^index\.html$ welcome.html'],
+              rewrite_map  => ['lc int:tolower'],
             }
           ],
         }
@@ -979,6 +1251,49 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
       it { is_expected.to contain '#test' }
       it { is_expected.to contain 'RewriteCond %{HTTP_USER_AGENT} ^Lynx/ [OR]' }
       it { is_expected.to contain 'RewriteRule ^index.html$ welcome.html' }
+      it { is_expected.to contain 'RewriteMap lc int:tolower' }
+    end
+  end
+
+  describe 'directory rewrite rules' do
+    it 'applies cleanly' do
+      pp = <<-EOS
+        class { 'apache': }
+        host { 'test.server': ip => '127.0.0.1' }
+        if ! defined(Class['apache::mod::rewrite']) {
+          include ::apache::mod::rewrite
+        }
+        apache::vhost { 'test.server':
+          docroot      => '/tmp',
+          directories  => [
+            {
+            path => '/tmp',
+            rewrites => [
+              {
+              comment => 'Permalink Rewrites',
+              rewrite_base => '/',
+              },
+              { rewrite_rule => [ '^index\\.php$ - [L]' ] },
+              { rewrite_cond => [
+                '%{REQUEST_FILENAME} !-f',
+                '%{REQUEST_FILENAME} !-d',                                                                                             ],                                                                                                                     rewrite_rule => [ '. /index.php [L]' ],                                                                              }
+              ],
+            },
+            ],
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe file("#{$vhost_dir}/25-test.server.conf") do
+      it { should be_file }
+      it { should contain '#Permalink Rewrites' }
+      it { should contain 'RewriteEngine On' }
+      it { should contain 'RewriteBase /' }
+      it { should contain 'RewriteRule ^index\.php$ - [L]' }
+      it { should contain 'RewriteCond %{REQUEST_FILENAME} !-f' }
+      it { should contain 'RewriteCond %{REQUEST_FILENAME} !-d' }
+      it { should contain 'RewriteRule . /index.php [L]' }
     end
   end
 
@@ -1018,57 +1333,65 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
 
     describe file("#{$vhost_dir}/25-test.server.conf") do
       it { is_expected.to be_file }
-      it { is_expected.to contain '<DirectoryMatch .*\.(svn|git|bzr)/.*>' }
+      it { is_expected.to contain '<DirectoryMatch .*\.(svn|git|bzr|hg|ht)/.*>' }
     end
   end
 
   describe 'wsgi' do
-    it 'import_script applies cleanly' do
-      pp = <<-EOS
-        class { 'apache': }
-        class { 'apache::mod::wsgi': }
-        host { 'test.server': ip => '127.0.0.1' }
-        apache::vhost { 'test.server':
-          docroot                     => '/tmp',
-          wsgi_application_group      => '%{GLOBAL}',
-          wsgi_daemon_process         => 'wsgi',
-          wsgi_daemon_process_options => {processes => '2'},
-          wsgi_process_group          => 'nobody',
-          wsgi_script_aliases         => { '/test' => '/test1' },
-    wsgi_pass_authorization     => 'On',
-        }
-      EOS
-      apply_manifest(pp, :catch_failures => true)
+    context 'on lucid', :if => fact('lsbdistcodename') == 'lucid' do
+      it 'import_script applies cleanly' do
+        pp = <<-EOS
+          class { 'apache': }
+          class { 'apache::mod::wsgi': }
+          host { 'test.server': ip => '127.0.0.1' }
+          apache::vhost { 'test.server':
+            docroot                     => '/tmp',
+            wsgi_application_group      => '%{GLOBAL}',
+            wsgi_daemon_process         => 'wsgi',
+            wsgi_daemon_process_options => {processes => '2'},
+            wsgi_process_group          => 'nobody',
+            wsgi_script_aliases         => { '/test' => '/test1' },
+            wsgi_script_aliases_match   => { '/test/([^/*])' => '/test1' },
+            wsgi_pass_authorization     => 'On',
+          }
+        EOS
+        apply_manifest(pp, :catch_failures => true)
+      end
     end
 
-    it 'import_script applies cleanly', :unless => (fact('lsbdistcodename') == 'lucid' or UNSUPPORTED_PLATFORMS.include?(fact('osfamily'))) do
-      pp = <<-EOS
-        class { 'apache': }
-        class { 'apache::mod::wsgi': }
-        host { 'test.server': ip => '127.0.0.1' }
-        apache::vhost { 'test.server':
-          docroot                     => '/tmp',
-          wsgi_application_group      => '%{GLOBAL}',
-          wsgi_daemon_process         => 'wsgi',
-          wsgi_daemon_process_options => {processes => '2'},
-          wsgi_import_script          => '/test1',
-          wsgi_import_script_options  => { application-group => '%{GLOBAL}', process-group => 'wsgi' },
-          wsgi_process_group          => 'nobody',
-          wsgi_script_aliases         => { '/test' => '/test1' },
-    wsgi_pass_authorization     => 'On',
-        }
-      EOS
-      apply_manifest(pp, :catch_failures => true)
-    end
+    context 'on everything but lucid', :unless => (fact('lsbdistcodename') == 'lucid' or fact('operatingsystem') == 'SLES') do
+      it 'import_script applies cleanly' do
+        pp = <<-EOS
+          class { 'apache': }
+          class { 'apache::mod::wsgi': }
+          host { 'test.server': ip => '127.0.0.1' }
+          apache::vhost { 'test.server':
+            docroot                     => '/tmp',
+            wsgi_application_group      => '%{GLOBAL}',
+            wsgi_daemon_process         => 'wsgi',
+            wsgi_daemon_process_options => {processes => '2'},
+            wsgi_import_script          => '/test1',
+            wsgi_import_script_options  => { application-group => '%{GLOBAL}', process-group => 'wsgi' },
+            wsgi_process_group          => 'nobody',
+            wsgi_script_aliases         => { '/test' => '/test1' },
+            wsgi_script_aliases_match   => { '/test/([^/*])' => '/test1' },
+            wsgi_pass_authorization     => 'On',
+            wsgi_chunked_request        => 'On',
+          }
+        EOS
+        apply_manifest(pp, :catch_failures => true)
+      end
 
-    describe file("#{$vhost_dir}/25-test.server.conf"), :unless => (fact('lsbdistcodename') == 'lucid' or UNSUPPORTED_PLATFORMS.include?(fact('osfamily'))) do
-      it { is_expected.to be_file }
-      it { is_expected.to contain 'WSGIApplicationGroup %{GLOBAL}' }
-      it { is_expected.to contain 'WSGIDaemonProcess wsgi processes=2' }
-      it { is_expected.to contain 'WSGIImportScript /test1 application-group=%{GLOBAL} process-group=wsgi' }
-      it { is_expected.to contain 'WSGIProcessGroup nobody' }
-      it { is_expected.to contain 'WSGIScriptAlias /test "/test1"' }
-      it { is_expected.to contain 'WSGIPassAuthorization On' }
+      describe file("#{$vhost_dir}/25-test.server.conf") do
+        it { is_expected.to be_file }
+        it { is_expected.to contain 'WSGIApplicationGroup %{GLOBAL}' }
+        it { is_expected.to contain 'WSGIDaemonProcess wsgi processes=2' }
+        it { is_expected.to contain 'WSGIImportScript /test1 application-group=%{GLOBAL} process-group=wsgi' }
+        it { is_expected.to contain 'WSGIProcessGroup nobody' }
+        it { is_expected.to contain 'WSGIScriptAlias /test "/test1"' }
+        it { is_expected.to contain 'WSGIPassAuthorization On' }
+        it { is_expected.to contain 'WSGIChunkedRequest On' }
+      end
     end
   end
 
@@ -1110,11 +1433,55 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
   end
 
-  # So what does this work on?
-  if default['platform'] !~ /^(debian-(6|7)|el-(5|6|7))/
+  # Limit testing to Debian, since Centos does not have fastcgi package.
+  case fact('osfamily')
+  when 'Debian'
     describe 'fastcgi' do
       it 'applies cleanly' do
         pp = <<-EOS
+          $_os = $::operatingsystem
+
+          if $_os == 'Ubuntu' {
+            $_location = "http://archive.ubuntu.com/ubuntu/"
+            $_security_location = "http://archive.ubuntu.com/ubuntu/"
+            $_release = $::lsbdistcodename
+            $_release_security = "${_release}-security"
+            $_repos = "main universe multiverse"
+          } else {
+            $_location = "http://httpredir.debian.org/debian/"
+            $_security_location = "http://security.debian.org/"
+            $_release = $::lsbdistcodename
+            $_release_security = "${_release}/updates"
+            $_repos = "main contrib non-free"
+          }
+
+          include ::apt
+          apt::source { "${_os}_${_release}":
+            location    => $_location,
+            release     => $_release,
+            repos       => $_repos,
+            include_src => false,
+          }
+
+          apt::source { "${_os}_${_release}-updates":
+            location    => $_location,
+            release     => "${_release}-updates",
+            repos       => $_repos,
+            include_src => false,
+          }
+
+          apt::source { "${_os}_${_release}-security":
+            location    => $_security_location,
+            release     => $_release_security,
+            repos       => $_repos,
+            include_src => false,
+          }
+        EOS
+
+        #apt-get update may not run clean here. Should be OK.
+        apply_manifest(pp, :catch_failures => false)
+
+        pp2 = <<-EOS
           class { 'apache': }
           class { 'apache::mod::fastcgi': }
           host { 'test.server': ip => '127.0.0.1' }
@@ -1125,7 +1492,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
             fastcgi_dir    => '/tmp/fast',
           }
         EOS
-        apply_manifest(pp, :catch_failures => true)
+        apply_manifest(pp2, :catch_failures => true, :acceptable_exit_codes => [0, 2])
       end
 
       describe file("#{$vhost_dir}/25-test.server.conf") do
@@ -1139,7 +1506,7 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
   describe 'additional_includes' do
     it 'applies cleanly' do
       pp = <<-EOS
-        if $::osfamily == 'RedHat' and $::selinux == 'true' {
+        if $::osfamily == 'RedHat' and "$::selinux" == "true" {
           $semanage_package = $::operatingsystemmajrelease ? {
             '5'     => 'policycoreutils',
             default => 'policycoreutils-python',
@@ -1175,4 +1542,49 @@ describe 'apache::vhost define', :unless => UNSUPPORTED_PLATFORMS.include?(fact(
     end
   end
 
+  describe 'virtualhost without priority prefix' do
+    it 'applies cleanly' do
+      pp = <<-EOS
+        class { 'apache': }
+        apache::vhost { 'test.server':
+          priority => false,
+          docroot => '/tmp'
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe file("#{$vhost_dir}/test.server.conf") do
+      it { is_expected.to be_file }
+    end
+  end
+
+  describe 'SSLProtocol directive' do
+    it 'applies cleanly' do
+      pp = <<-EOS
+        class { 'apache': }
+        apache::vhost { 'test.server':
+          docroot      => '/tmp',
+          ssl          => true,
+          ssl_protocol => ['All', '-SSLv2'],
+        }
+        apache::vhost { 'test2.server':
+          docroot      => '/tmp',
+          ssl          => true,
+          ssl_protocol => 'All -SSLv2',
+        }
+      EOS
+      apply_manifest(pp, :catch_failures => true)
+    end
+
+    describe file("#{$vhost_dir}/25-test.server.conf") do
+      it { is_expected.to be_file }
+      it { is_expected.to contain 'SSLProtocol  *All -SSLv2' }
+    end
+
+    describe file("#{$vhost_dir}/25-test2.server.conf") do
+      it { is_expected.to be_file }
+      it { is_expected.to contain 'SSLProtocol  *All -SSLv2' }
+    end
+  end
 end

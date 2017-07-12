@@ -2,7 +2,7 @@ define apache::mod (
   $package        = undef,
   $package_ensure = 'present',
   $lib            = undef,
-  $lib_path       = $::apache::params::lib_path,
+  $lib_path       = $::apache::lib_path,
   $id             = undef,
   $path           = undef,
   $loadfile_name  = undef,
@@ -18,11 +18,10 @@ define apache::mod (
 
   # Determine if we have special lib
   $mod_libs = $::apache::params::mod_libs
-  $mod_lib = $mod_libs[$mod] # 2.6 compatibility hack
   if $lib {
     $_lib = $lib
-  } elsif $mod_lib {
-    $_lib = $mod_lib
+  } elsif has_key($mod_libs, $mod) { # 2.6 compatibility hack
+    $_lib = $mod_libs[$mod]
   } else {
     $_lib = "mod_${mod}.so"
   }
@@ -48,11 +47,15 @@ define apache::mod (
 
   # Determine if we have a package
   $mod_packages = $::apache::params::mod_packages
-  $mod_package = $mod_packages[$mod] # 2.6 compatibility hack
   if $package {
     $_package = $package
-  } elsif $mod_package {
-    $_package = $mod_package
+  } elsif has_key($mod_packages, $mod) { # 2.6 compatibility hack
+    if ($::apache::apache_version == '2.4' and $::operatingsystem =~ /^[Aa]mazon$/) {
+      # On amazon linux we need to prefix our package name with mod24 instead of mod to support apache 2.4
+      $_package = regsubst($mod_packages[$mod],'^(mod_)?(.*)','mod24_\2')
+    } else {
+      $_package = $mod_packages[$mod]
+    }
   } else {
     $_package = undef
   }
@@ -64,31 +67,37 @@ define apache::mod (
     $package_before = $::osfamily ? {
       'freebsd' => [
         File[$_loadfile_name],
-        File["${::apache::params::conf_dir}/${::apache::params::conf_file}"]
+        File["${::apache::conf_dir}/${::apache::params::conf_file}"]
       ],
-      default => File[$_loadfile_name],
+      default => [
+        File[$_loadfile_name],
+        File[$::apache::confd_dir],
+      ],
     }
+    # if there are any packages, they should be installed before the associated conf file
+    Package[$_package] -> File<| title == "${mod}.conf" |>
     # $_package may be an array
     package { $_package:
       ensure  => $package_ensure,
       require => Package['httpd'],
       before  => $package_before,
+      notify  => Class['apache::service'],
     }
   }
 
-  file { "${_loadfile_name}":
+  file { $_loadfile_name:
     ensure  => file,
     path    => "${mod_dir}/${_loadfile_name}",
     owner   => 'root',
     group   => $::apache::params::root_group,
-    mode    => '0644',
+    mode    => $::apache::file_mode,
     content => template('apache/mod/load.erb'),
     require => [
       Package['httpd'],
       Exec["mkdir ${mod_dir}"],
     ],
     before  => File[$mod_dir],
-    notify  => Service['httpd'],
+    notify  => Class['apache::service'],
   }
 
   if $::osfamily == 'Debian' {
@@ -99,13 +108,13 @@ define apache::mod (
       target  => "${mod_dir}/${_loadfile_name}",
       owner   => 'root',
       group   => $::apache::params::root_group,
-      mode    => '0644',
+      mode    => $::apache::file_mode,
       require => [
         File[$_loadfile_name],
         Exec["mkdir ${enable_dir}"],
       ],
       before  => File[$enable_dir],
-      notify  => Service['httpd'],
+      notify  => Class['apache::service'],
     }
     # Each module may have a .conf file as well, which should be
     # defined in the class apache::mod::module
@@ -117,14 +126,51 @@ define apache::mod (
         target  => "${mod_dir}/${mod}.conf",
         owner   => 'root',
         group   => $::apache::params::root_group,
-        mode    => '0644',
+        mode    => $::apache::file_mode,
         require => [
           File["${mod}.conf"],
           Exec["mkdir ${enable_dir}"],
         ],
         before  => File[$enable_dir],
-        notify  => Service['httpd'],
+        notify  => Class['apache::service'],
+      }
+    }
+  } elsif $::osfamily == 'Suse' {
+    $enable_dir = $::apache::mod_enable_dir
+    file{ "${_loadfile_name} symlink":
+      ensure  => link,
+      path    => "${enable_dir}/${_loadfile_name}",
+      target  => "${mod_dir}/${_loadfile_name}",
+      owner   => 'root',
+      group   => $::apache::params::root_group,
+      mode    => $::apache::file_mode,
+      require => [
+        File[$_loadfile_name],
+        Exec["mkdir ${enable_dir}"],
+      ],
+      before  => File[$enable_dir],
+      notify  => Class['apache::service'],
+    }
+    # Each module may have a .conf file as well, which should be
+    # defined in the class apache::mod::module
+    # Some modules do not require this file.
+    if defined(File["${mod}.conf"]) {
+      file{ "${mod}.conf symlink":
+        ensure  => link,
+        path    => "${enable_dir}/${mod}.conf",
+        target  => "${mod_dir}/${mod}.conf",
+        owner   => 'root',
+        group   => $::apache::params::root_group,
+        mode    => $::apache::file_mode,
+        require => [
+          File["${mod}.conf"],
+          Exec["mkdir ${enable_dir}"],
+        ],
+        before  => File[$enable_dir],
+        notify  => Class['apache::service'],
       }
     }
   }
+
+  Apache::Mod[$name] -> Anchor['::apache::modules_set_up']
 }
