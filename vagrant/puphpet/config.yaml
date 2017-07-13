@@ -230,7 +230,7 @@ apache:
             servername: cakephp3.local
             serveraliases:
                 - www.cakephp3.local
-            docroot: /var/www/cakephp3/src/CakePHP3/webroot
+            docroot: /var/www/cakephp3/src/cakephp3/webroot
             port: '80'
             setenvif:
                 - 'Authorization "(.*)" HTTP_AUTHORIZATION=$1'
@@ -244,7 +244,7 @@ apache:
             ssl_cipher: ''
             directories:
                 avd_wfaauh3v44nv:
-                    path: /var/www/cakephp3/src/CakePHP3/webroot
+                    path: /var/www/cakephp3/src/cakephp3/webroot
                     directoryindex: index.php
                     options:
                         - Indexes
